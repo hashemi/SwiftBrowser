@@ -8,12 +8,21 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State var addressBar: String = ""
+    @State var currentTask: Task<(), Never>? = nil
+    
     var body: some View {
         VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+            TextField("Address", text: $addressBar)
+                .onSubmit {
+                    guard let url = URL(string: addressBar) else { return }
+
+                    currentTask?.cancel()
+                    self.currentTask = Task {
+                        try! await load(url: url)
+                    }
+                }
+            Spacer()
         }
         .padding()
     }
