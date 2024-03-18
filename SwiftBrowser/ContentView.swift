@@ -7,24 +7,42 @@
 
 import SwiftUI
 
+let SCROLL_STEP = 100
+
 struct ContentView: View {
     @State var addressBar: String = ""
     @State var currentTask: Task<(), Never>? = nil
+    @State var content: [(Int, Int, Character)] = []
+    @State var scroll: Int = 0
     
     var body: some View {
         VStack {
             TextField("Address", text: $addressBar)
                 .onSubmit {
-                    guard let url = URL(string: addressBar) else { return }
+                    guard let url = URL(string: addressBar) else {
+                        print("Failed to convert URL")
+                        return
+                    }
 
                     currentTask?.cancel()
                     self.currentTask = Task {
-                        try! await load(url: url)
+                        guard let content = try? await load(url: url) else {
+                            print("Failed to load content")
+                            return
+                        }
+                        await MainActor.run {
+                            self.content = content
+                        }
                     }
                 }
+            Browser(content: content, scroll: scroll)
             Spacer()
         }
         .padding()
+        .onKeyPress(.downArrow) {
+            scroll += SCROLL_STEP
+            return .handled
+        }
     }
 }
 
