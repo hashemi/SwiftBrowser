@@ -49,6 +49,10 @@ func layout(text: String) -> [(Double, Double, Character)] {
     for c in text {
         displayList.append((cursorX, cursorY, c))
         cursorX += HSTEP
+        if ["\r\n", "\n"].contains(c) {
+            cursorY += VSTEP * 1.2
+            cursorX = HSTEP
+        }
         if cursorX >= WIDTH - HSTEP {
             cursorY += VSTEP
             cursorX = HSTEP
