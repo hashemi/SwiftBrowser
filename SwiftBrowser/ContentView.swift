@@ -7,13 +7,13 @@
 
 import SwiftUI
 
-let SCROLL_STEP = 100
+let SCROLL_STEP = 100.0
 
 struct ContentView: View {
     @State var addressBar: String = ""
     @State var currentTask: Task<(), Never>? = nil
-    @State var content: [(Int, Int, Character)] = []
-    @State var scroll: Int = 0
+    @State var content: [(Double, Double, Character)] = []
+    @State var scroll = 0.0
     
     var body: some View {
         VStack {

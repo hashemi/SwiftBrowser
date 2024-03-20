@@ -26,7 +26,7 @@ func lex(body: String) -> String {
     return String(bytes: text, encoding: .utf8)!
 }
 
-func load(url: URL) async throws -> [(Int, Int, Character)] {
+func load(url: URL) async throws -> [(Double, Double, Character)] {
     let (data, response) = try await URLSession.shared.data(from: url)
 
     guard
@@ -41,8 +41,8 @@ func load(url: URL) async throws -> [(Int, Int, Character)] {
     return layout(text: text)
 }
 
-func layout(text: String) -> [(Int, Int, Character)] {
-    var displayList: [(Int, Int, Character)] = []
+func layout(text: String) -> [(Double, Double, Character)] {
+    var displayList: [(Double, Double, Character)] = []
     var cursorX = HSTEP
     var cursorY = VSTEP
 
@@ -58,11 +58,11 @@ func layout(text: String) -> [(Int, Int, Character)] {
     return displayList
 }
 
-let WIDTH = 800
-let HEIGHT = 600
+let WIDTH = 800.0
+let HEIGHT = 600.0
 
-let HSTEP = 13
-let VSTEP = 18
+let HSTEP = 13.0
+let VSTEP = 18.0
 
 
 class FlippedView: NSView {
@@ -70,8 +70,8 @@ class FlippedView: NSView {
 }
 
 struct Browser: NSViewRepresentable {
-    var content: [(Int, Int, Character)] = []
-    var scroll: Int
+    var content: [(Double, Double, Character)] = []
+    var scroll: Double
     
     func makeNSView(context: Context) -> some NSView {
         let view = FlippedView(frame: CGRect(x: 0, y: 0, width: WIDTH, height: HEIGHT))
