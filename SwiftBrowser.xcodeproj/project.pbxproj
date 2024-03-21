@@ -56,10 +56,10 @@
 			children = (
 				EED218CB2BA66E7800AD187D /* SwiftBrowserApp.swift */,
 				EED218CD2BA66E7800AD187D /* ContentView.swift */,
+				EED218DA2BA66F3600AD187D /* Browser.swift */,
 				EED218CF2BA66E7A00AD187D /* Assets.xcassets */,
 				EED218D42BA66E7A00AD187D /* SwiftBrowser.entitlements */,
 				EED218D12BA66E7A00AD187D /* Preview Content */,
-				EED218DA2BA66F3600AD187D /* Browser.swift */,
 			);
 			path = SwiftBrowser;
 			sourceTree = "<group>";
