@@ -32,6 +32,7 @@ struct ContentView: View {
                         }
                         await MainActor.run {
                             self.content = content
+                            self.scroll = 0.0
                         }
                     }
                 }
