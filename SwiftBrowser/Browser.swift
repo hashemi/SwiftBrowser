@@ -58,7 +58,7 @@ func load(url: URL) async throws -> [LayoutElement] {
     }
     
     let tokens = lex(body: body)
-    return layout(tokens: tokens)
+    return Layout(tokens: tokens).displayList
 }
 
 extension NSFont {
@@ -66,54 +66,69 @@ extension NSFont {
         let attributedString = NSAttributedString(string: string, attributes: [.font: self])
         return attributedString.size().width
     }
-    
-    var bold: NSFont {
-        NSFontManager.shared.convert(self, toHaveTrait: [.boldFontMask])
-    }
-    var italic: NSFont {
-        NSFontManager.shared.convert(self, toHaveTrait: [.italicFontMask])
-    }
-    var noBold: NSFont {
-        NSFontManager.shared.convert(self, toNotHaveTrait: [.boldFontMask])
-    }
-    var noItalic: NSFont {
-        NSFontManager.shared.convert(self, toNotHaveTrait: [.italicFontMask])
-    }
 }
 
-func layout(tokens: [Token]) -> [LayoutElement] {
-    var font = NSFont.systemFont(ofSize: 18)
+struct Layout {
+    enum Weight { case regular, bold }
+    enum Style { case roman, italic }
 
     var displayList: [LayoutElement] = []
+
     var cursorX = HSTEP
     var cursorY = VSTEP
+    var weight = Weight.regular
+    var style = Style.roman
+    var size = 16.0
+    
+    var font: NSFont {
+        let font = NSFont.systemFont(ofSize: size)
+        var traits: NSFontTraitMask = []
+        if weight == .bold { traits.insert(.boldFontMask) }
+        if style == .italic { traits.insert(.italicFontMask) }
+        if traits.isEmpty {
+            return font
+        } else {
+            return NSFontManager.shared.convert(font, toHaveTrait: traits)
+        }
+    }
+    
+    init(tokens: [Token]) {
+        for tok in tokens {
+            token(tok)
+        }
+    }
+    
+    private mutating func word(_ word: String) {
+        let w = font.measure(word)
+        displayList.append((cursorX, cursorY, word, font))
+        cursorX += w + font.measure(" ")
 
-    for tok in tokens {
+        if cursorX + w > WIDTH - HSTEP {
+            cursorY += (font.ascender + font.descender + font.leading) * 1.25
+            cursorX = HSTEP
+        }
+    }
+    
+    private mutating func token(_ tok: Token) {
         switch tok {
         case .text(let text):
             for word in text.split(separator: /[\r\t\n ]+/).map(String.init) {
-                let w = font.measure(word)
-                displayList.append((cursorX, cursorY, word, font))
-                cursorX += w + font.measure(" ")
-
-                if cursorX + w > WIDTH - HSTEP {
-                    cursorY += (font.ascender + font.descender + font.leading) * 1.25
-                    cursorX = HSTEP
-                }
+                self.word(word)
             }
         case .tag(let tag):
-            print(tag)
             switch tag {
-            case "i", "em": font = font.italic
-            case "/i", "/em": font = font.noItalic
-            case "b", "strong": font = font.bold
-            case "/b", "/strong": font = font.noBold
+            case "i", "em": style = .italic
+            case "/i", "/em": style = .roman
+            case "b", "strong": weight = .bold
+            case "/b", "/strong": weight = .regular
+            case "small": size -= 2
+            case "/small": size += 2
+            case "big": size += 4
+            case "/big": size -= 4
             default: break
             }
         }
     }
-
-    return displayList
 }
 
 let WIDTH = 800.0
@@ -152,7 +167,7 @@ struct Browser: NSViewRepresentable {
             let textLayer = CATextLayer()
             textLayer.string = "\(c)"
             textLayer.font = f
-            textLayer.fontSize = 18
+            textLayer.fontSize = f.pointSize
             textLayer.foregroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
             textLayer.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
             textLayer.position = CGPoint(x: x, y: y - scroll)
