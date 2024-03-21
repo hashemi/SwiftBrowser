@@ -8,6 +8,8 @@
 import Foundation
 import SwiftUI
 
+typealias LayoutElement = (Double, Double, String)
+
 func lex(body: String) -> String {
     var text: [UInt8] = []
     var inTag = false
@@ -26,7 +28,7 @@ func lex(body: String) -> String {
     return String(bytes: text, encoding: .utf8)!
 }
 
-func load(url: URL) async throws -> [(Double, Double, Character)] {
+func load(url: URL) async throws -> [LayoutElement] {
     let (data, response) = try await URLSession.shared.data(from: url)
 
     guard
@@ -41,24 +43,31 @@ func load(url: URL) async throws -> [(Double, Double, Character)] {
     return layout(text: text)
 }
 
-func layout(text: String) -> [(Double, Double, Character)] {
-    var displayList: [(Double, Double, Character)] = []
+extension NSFont {
+    func measure(_ string: String) -> CGFloat {
+        let attributedString = NSAttributedString(string: string, attributes: [.font: self])
+        return attributedString.size().width
+    }
+}
+
+func layout(text: String) -> [LayoutElement] {
+    let font = NSFont.systemFont(ofSize: 18)
+
+    var displayList: [LayoutElement] = []
     var cursorX = HSTEP
     var cursorY = VSTEP
 
-    for c in text {
-        displayList.append((cursorX, cursorY, c))
-        cursorX += HSTEP
-        if ["\r\n", "\n"].contains(c) {
-            cursorY += VSTEP * 1.2
-            cursorX = HSTEP
-        }
-        if cursorX >= WIDTH - HSTEP {
-            cursorY += VSTEP
+    for word in text.split(separator: /[\r\t\n ]+/).map(String.init) {
+        let w = font.measure(word)
+        displayList.append((cursorX, cursorY, word))
+        cursorX += w + font.measure(" ")
+
+        if cursorX + w > WIDTH - HSTEP {
+            cursorY += (font.ascender + font.descender + font.leading) * 1.25
             cursorX = HSTEP
         }
     }
-    
+
     return displayList
 }
 
@@ -74,7 +83,7 @@ class FlippedView: NSView {
 }
 
 struct Browser: NSViewRepresentable {
-    var content: [(Double, Double, Character)] = []
+    var content: [LayoutElement] = []
     var scroll: Double
     
     func makeNSView(context: Context) -> some NSView {

@@ -12,7 +12,7 @@ let SCROLL_STEP = 100.0
 struct ContentView: View {
     @State var addressBar: String = ""
     @State var currentTask: Task<(), Never>? = nil
-    @State var content: [(Double, Double, Character)] = []
+    @State var content: [LayoutElement] = []
     @State var scroll = 0.0
     
     var body: some View {
