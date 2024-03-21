@@ -8,24 +8,42 @@
 import Foundation
 import SwiftUI
 
-typealias LayoutElement = (Double, Double, String)
+typealias LayoutElement = (Double, Double, String, NSFont)
 
-func lex(body: String) -> String {
-    var text: [UInt8] = []
+enum Token {
+    case text(String)
+    case tag(String)
+}
+
+func lex(body: String) -> [Token] {
+    var out: [Token] = []
+    var buffer: [UInt8] = []
+    var bufferAsString: String { String(bytes: buffer, encoding: .utf8)! }
+    
     var inTag = false
+
     for c in body.utf8 {
         switch c {
         case UInt8(ascii: "<"):
             inTag = true
+            if !buffer.isEmpty {
+                out.append(.text(bufferAsString))
+                buffer.removeAll()
+            }
         case UInt8(ascii: ">"):
             inTag = false
-        case _ where !inTag:
-            text.append(c)
+            out.append(.tag(bufferAsString))
+            buffer.removeAll()
         default:
-            break
+            buffer.append(c)
         }
     }
-    return String(bytes: text, encoding: .utf8)!
+    
+    if !inTag && !buffer.isEmpty {
+        out.append(.text(bufferAsString))
+    }
+    
+    return out
 }
 
 func load(url: URL) async throws -> [LayoutElement] {
@@ -39,8 +57,8 @@ func load(url: URL) async throws -> [LayoutElement] {
         return []
     }
     
-    let text = lex(body: body)
-    return layout(text: text)
+    let tokens = lex(body: body)
+    return layout(tokens: tokens)
 }
 
 extension NSFont {
@@ -48,23 +66,50 @@ extension NSFont {
         let attributedString = NSAttributedString(string: string, attributes: [.font: self])
         return attributedString.size().width
     }
+    
+    var bold: NSFont {
+        NSFontManager.shared.convert(self, toHaveTrait: [.boldFontMask])
+    }
+    var italic: NSFont {
+        NSFontManager.shared.convert(self, toHaveTrait: [.italicFontMask])
+    }
+    var noBold: NSFont {
+        NSFontManager.shared.convert(self, toNotHaveTrait: [.boldFontMask])
+    }
+    var noItalic: NSFont {
+        NSFontManager.shared.convert(self, toNotHaveTrait: [.italicFontMask])
+    }
 }
 
-func layout(text: String) -> [LayoutElement] {
-    let font = NSFont.systemFont(ofSize: 18)
+func layout(tokens: [Token]) -> [LayoutElement] {
+    var font = NSFont.systemFont(ofSize: 18)
 
     var displayList: [LayoutElement] = []
     var cursorX = HSTEP
     var cursorY = VSTEP
 
-    for word in text.split(separator: /[\r\t\n ]+/).map(String.init) {
-        let w = font.measure(word)
-        displayList.append((cursorX, cursorY, word))
-        cursorX += w + font.measure(" ")
+    for tok in tokens {
+        switch tok {
+        case .text(let text):
+            for word in text.split(separator: /[\r\t\n ]+/).map(String.init) {
+                let w = font.measure(word)
+                displayList.append((cursorX, cursorY, word, font))
+                cursorX += w + font.measure(" ")
 
-        if cursorX + w > WIDTH - HSTEP {
-            cursorY += (font.ascender + font.descender + font.leading) * 1.25
-            cursorX = HSTEP
+                if cursorX + w > WIDTH - HSTEP {
+                    cursorY += (font.ascender + font.descender + font.leading) * 1.25
+                    cursorX = HSTEP
+                }
+            }
+        case .tag(let tag):
+            print(tag)
+            switch tag {
+            case "i", "em": font = font.italic
+            case "/i", "/em": font = font.noItalic
+            case "b", "strong": font = font.bold
+            case "/b", "/strong": font = font.noBold
+            default: break
+            }
         }
     }
 
@@ -100,13 +145,13 @@ struct Browser: NSViewRepresentable {
         let parentLayer = view.layer!
         parentLayer.sublayers = []
         
-        for (x, y, c) in content {
+        for (x, y, c, f) in content {
             if y > scroll + HEIGHT { continue }
             if y + VSTEP < scroll { continue }
             
             let textLayer = CATextLayer()
             textLayer.string = "\(c)"
-            textLayer.font = NSFont.systemFont(ofSize: 18)
+            textLayer.font = f
             textLayer.fontSize = 18
             textLayer.foregroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
             textLayer.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
