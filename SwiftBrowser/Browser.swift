@@ -73,6 +73,7 @@ struct Layout {
     enum Style { case roman, italic }
 
     var displayList: [LayoutElement] = []
+    var line: [(Double, String, NSFont)] = []
 
     var cursorX = HSTEP
     var cursorY = VSTEP
@@ -96,17 +97,32 @@ struct Layout {
         for tok in tokens {
             token(tok)
         }
+        flush()
     }
     
     private mutating func word(_ word: String) {
         let w = font.measure(word)
-        displayList.append((cursorX, cursorY, word, font))
+        line.append((cursorX, word, font))
         cursorX += w + font.measure(" ")
 
         if cursorX + w > WIDTH - HSTEP {
-            cursorY += (font.ascender + font.descender + font.leading) * 1.25
-            cursorX = HSTEP
+            flush()
         }
+    }
+    
+    private mutating func flush() {
+        guard !line.isEmpty else { return }
+        let maxAscent = line.map(\.2).map(\.ascender).max()!
+        let baseline = cursorY + 1.25 * maxAscent
+        for (x, word, font) in line {
+            let y = baseline - font.ascender
+            displayList.append((x, y, word, font))
+        }
+
+        let maxDescent = line.map(\.2).map(\.descender).max()!
+        cursorY = baseline + 1.25 * maxDescent
+        cursorX = HSTEP
+        line.removeAll()
     }
     
     private mutating func token(_ tok: Token) {
@@ -125,6 +141,10 @@ struct Layout {
             case "/small": size += 2
             case "big": size += 4
             case "/big": size -= 4
+            case "br": flush()
+            case "/p":
+                flush()
+                cursorY += VSTEP
             default: break
             }
         }
