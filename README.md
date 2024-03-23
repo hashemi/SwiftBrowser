@@ -11,3 +11,4 @@ Code from the following chapters have been implemented:
 1. Downloading Web Pages
 2. Drawing to the Screen
 3. Formatting Text
+4. Constructing a Document Tree

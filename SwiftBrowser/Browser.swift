@@ -10,42 +10,6 @@ import SwiftUI
 
 typealias LayoutElement = (Double, Double, String, NSFont)
 
-enum Token {
-    case text(String)
-    case tag(String)
-}
-
-func lex(body: String) -> [Token] {
-    var out: [Token] = []
-    var buffer: [UInt8] = []
-    var bufferAsString: String { String(bytes: buffer, encoding: .utf8)! }
-    
-    var inTag = false
-
-    for c in body.utf8 {
-        switch c {
-        case UInt8(ascii: "<"):
-            inTag = true
-            if !buffer.isEmpty {
-                out.append(.text(bufferAsString))
-                buffer.removeAll()
-            }
-        case UInt8(ascii: ">"):
-            inTag = false
-            out.append(.tag(bufferAsString))
-            buffer.removeAll()
-        default:
-            buffer.append(c)
-        }
-    }
-    
-    if !inTag && !buffer.isEmpty {
-        out.append(.text(bufferAsString))
-    }
-    
-    return out
-}
-
 func load(url: URL) async throws -> [LayoutElement] {
     let (data, response) = try await URLSession.shared.data(from: url)
 
@@ -57,14 +21,206 @@ func load(url: URL) async throws -> [LayoutElement] {
         return []
     }
     
-    let tokens = lex(body: body)
-    return Layout(tokens: tokens).displayList
+    let node = HTMLParser(body: body).parse()
+    return Layout(tree: node).displayList
 }
 
 extension NSFont {
     func measure(_ string: String) -> CGFloat {
         let attributedString = NSAttributedString(string: string, attributes: [.font: self])
         return attributedString.size().width
+    }
+}
+
+func printTree(node: any Node, indent: Int = 0) {
+    print(String(repeating: " ", count: indent), node)
+    for child in node.children {
+        printTree(node: child, indent: indent + 2)
+    }
+}
+
+protocol Node: CustomStringConvertible {
+    var parent: (any Node)? { get }
+    var children: [any Node] { get }
+}
+
+class Text: Node {
+    let text: String
+    let parent: (any Node)?
+    let children: [any Node] = []
+    
+    init(text: String, parent: any Node) {
+        self.text = text
+        self.parent = parent
+    }
+    
+    var description: String { text.debugDescription }
+}
+
+class Element: Node {
+    let tag: String
+    let attributes: [String: String]
+    let parent: (any Node)?
+    var children: [any Node]
+    
+    init(tag: String, attributes: [String: String], parent: (any Node)?) {
+        self.tag = tag
+        self.attributes = attributes
+        self.parent = parent
+        self.children = []
+    }
+    
+    var description: String { "<\(tag)>" }
+}
+
+extension UInt8 {
+    var isWhitespace: Bool {
+        Set([0x20, 0x09, 0x0A, 0x0D, 0x0C, 0x0B]).contains(self)
+    }
+}
+
+extension Array where Element == UInt8 {
+    func lowercased() -> [UInt8] {
+        self.map {
+            if $0 >= 65 && $0 <= 90 {
+                return $0 + 32
+            } else {
+                return $0
+            }
+        }
+    }
+}
+
+let SELF_CLOSING_TAGS = Set([
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+])
+
+let HEAD_TAGS = Set([
+    "base", "basefont", "bgsound", "noscript",
+    "link", "meta", "title", "style", "script",
+])
+
+class HTMLParser {
+    let body: String
+    var unfinished: [Element] = []
+    
+    init(body: String) {
+        self.body = body
+    }
+    
+    func getAttributes(_ text: [UInt8]) -> ([UInt8], [[UInt8]: [UInt8]]) {
+        let parts = text.split(whereSeparator: \.isWhitespace)
+        let tag = Array(parts[0]).lowercased()
+        var attributes: [[UInt8]: [UInt8]] = [:]
+        
+        for attrpair in parts[1...] {
+            let parts = attrpair.split(separator: UInt8(ascii: "="), maxSplits: 1)
+            if parts.count > 1 {
+                let key = parts[0]
+                var value = parts[1]
+                if value.count > 2 && [UInt8(ascii: "\""), UInt8(ascii: "'")].contains(value.first) {
+                    value = value.dropFirst().dropFirst()
+                }
+                attributes[Array(key).lowercased()] = Array(value).lowercased()
+            } else {
+                attributes[Array(attrpair).lowercased()] = []
+            }
+        }
+        return (tag, attributes)
+    }
+    
+    func parse() -> Element {
+        var text: [UInt8] = []
+        var inTag = false
+        for c in body.utf8 {
+            switch c {
+            case UInt8(ascii: "<"):
+                inTag = true
+                if !text.isEmpty {
+                    addText(text)
+                }
+                text.removeAll()
+            case UInt8(ascii: ">"):
+                inTag = false
+                addTag(text)
+                text.removeAll()
+            default:
+                text.append(c)
+            }
+        }
+        if !inTag && !text.isEmpty {
+            addText(text)
+        }
+        return finish()
+    }
+    
+    func addText(_ text: [UInt8]) {
+        if text.allSatisfy(\.isWhitespace) { return }
+        implicitTags("")
+        
+        let parent = unfinished.last!
+        let node = Text(text: String(bytes: text, encoding: .utf8)!, parent: parent)
+        parent.children.append(node)
+    }
+    
+    func addTag(_ text: [UInt8]) {
+        let (tag, attributes) = getAttributes(text)
+        if tag.first == UInt8(ascii: "!") { return }
+        implicitTags(String(bytes: tag, encoding: .utf8)!)
+        if tag.first == UInt8(ascii: "/") {
+            if unfinished.count == 1 { return }
+            let node = unfinished.popLast()!
+            let parent = unfinished.last!
+            parent.children.append(node)
+        } else if SELF_CLOSING_TAGS.contains(String(bytes: tag, encoding: .utf8)!) {
+            let parent = unfinished.last!
+            let node = Element(
+                tag: String(bytes: tag, encoding: .utf8)!,
+                attributes: Dictionary(uniqueKeysWithValues: attributes.map({ (String(bytes: $0.key, encoding: .utf8)!, String(bytes: $0.value, encoding: .utf8)!) })),
+                parent: parent
+            )
+            parent.children.append(node)
+        } else {
+            let parent = unfinished.last
+            let node = Element(
+                tag: String(bytes: tag, encoding: .utf8)!,
+                attributes: Dictionary(uniqueKeysWithValues: attributes.map({ (String(bytes: $0.key, encoding: .utf8)!, String(bytes: $0.value, encoding: .utf8)!) })),
+                parent: parent
+            )
+            unfinished.append(node)
+        }
+    }
+    
+    func finish() -> Element {
+        if unfinished.isEmpty {
+            implicitTags("")
+        }
+        while unfinished.count > 1 {
+            let node = unfinished.popLast()!
+            let parent = unfinished.last!
+            parent.children.append(node)
+        }
+        return unfinished.popLast()!
+    }
+    
+    func implicitTags(_ tag: String) {
+        while true {
+            let openTags = unfinished.map(\.tag)
+            if openTags.isEmpty && tag != "html" {
+                addTag(Array("html".utf8))
+            } else if openTags == ["html"] && !["head", "body", "/html"].contains(tag) {
+                if HEAD_TAGS.contains(tag) {
+                    addTag(Array("head".utf8))
+                } else {
+                    addTag(Array("body".utf8))
+                }
+            } else if openTags == ["html", "head"] && !(HEAD_TAGS + ["/head"]).contains(tag) {
+                addTag(Array("/head".utf8))
+            } else {
+                break
+            }
+        }
     }
 }
 
@@ -93,10 +249,8 @@ struct Layout {
         }
     }
     
-    init(tokens: [Token]) {
-        for tok in tokens {
-            token(tok)
-        }
+    init(tree: Node) {
+        recurse(tree)
         flush()
     }
     
@@ -107,6 +261,30 @@ struct Layout {
 
         if cursorX + w > WIDTH - HSTEP {
             flush()
+        }
+    }
+    
+    private mutating func openTag(_ tag: String) {
+        switch tag {
+        case "i", "em": style = .italic
+        case "b", "strong": weight = .bold
+        case "small": size -= 2
+        case "big": size += 4
+        case "br": flush()
+        default: break
+        }
+    }
+    
+    private mutating func closeTag(_ tag: String) {
+        switch tag {
+        case "i", "em": style = .roman
+        case "b", "strong": weight = .regular
+        case "small": size += 2
+        case "big": size -= 4
+        case "p":
+            flush()
+            cursorY += VSTEP
+        default: break
         }
     }
     
@@ -125,28 +303,20 @@ struct Layout {
         line.removeAll()
     }
     
-    private mutating func token(_ tok: Token) {
-        switch tok {
-        case .text(let text):
-            for word in text.split(separator: /[\r\t\n ]+/).map(String.init) {
+    private mutating func recurse(_ tree: Node) {
+        switch tree {
+        case let text as Text:
+            for word in text.text.split(separator: /[\r\t\n ]+/).map(String.init) {
                 self.word(word)
             }
-        case .tag(let tag):
-            switch tag {
-            case "i", "em": style = .italic
-            case "/i", "/em": style = .roman
-            case "b", "strong": weight = .bold
-            case "/b", "/strong": weight = .regular
-            case "small": size -= 2
-            case "/small": size += 2
-            case "big": size += 4
-            case "/big": size -= 4
-            case "br": flush()
-            case "/p":
-                flush()
-                cursorY += VSTEP
-            default: break
+        case let element as Element:
+            openTag(element.tag)
+            for child in tree.children {
+                recurse(child)
             }
+            closeTag(element.tag)
+        default:
+            fatalError("Unrecognized node type")
         }
     }
 }
